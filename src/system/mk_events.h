@@ -34,6 +34,7 @@ typedef enum {
     MK_EVT_SD_INSERTED    = 0x30,
     MK_EVT_SD_REMOVED     = 0x31,
     MK_EVT_TOUCH          = 0x40,   /* any touch event (for sleep timer reset) */
+    MK_EVT_KEY_TONE,
 } mk_event_t;
 
 /* ── Lifecycle ────────────────────────────────────────────────── */

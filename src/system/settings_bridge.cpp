@@ -182,10 +182,12 @@ void sys_apply_volume(int pct)
 {
     if (pct < 0)   pct = 0;
     if (pct > 100) pct = 100;
+
     s_volume = pct;
+
     if (!s_dev) return;
-    /* UI 0-100% → hardware 0-SPK_VOLUME_MAX，滑块全程可用且永不超出扬声器额定功率 */
-    s_dev->speaker.setVolume(pct * SPK_VOLUME_MAX / 100);
+
+    s_dev->speaker.setVolume(pct);
 }
 
 void settings_set_volume(int pct)

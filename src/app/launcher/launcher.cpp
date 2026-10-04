@@ -73,6 +73,32 @@
 #include <freertos/task.h>
 
 /* ────────────────────────────────────────────────────── */
+/* Audio things */
+static lv_timer_t* s_beep_timer = NULL;
+static uint8_t s_beep_state = 0;
+static DEVICES* s_beep_dev = NULL;
+static void beep_timer_cb(lv_timer_t* timer)
+{
+    if (s_beep_state == 1) {
+        // This internally overrides the codec to 75
+        s_beep_dev->speaker.buttonTone(40, 75); 
+        
+        s_beep_state = 2;
+        lv_timer_set_period(timer, 100);
+    }
+    else if (s_beep_state == 2) {
+        s_beep_dev->speaker.stop();
+        s_beep_dev->io_exp.digitalWrite(HAL_IOEXP_PA_EN, LOW);
+
+        // Restore the hardware volume to the master slider AFTER the audio finishes
+        s_beep_dev->speaker.setVolume(sys_get_volume());
+
+        s_beep_state = 0;
+        lv_timer_del(timer);
+        s_beep_timer = NULL;
+        s_beep_dev = NULL;
+    }
+}
 
 /* Held for shutdown LED callback — plain C function can't capture 'this'. */
 static DEVICES* s_shutdown_dev = nullptr;
@@ -566,6 +592,16 @@ void Launcher::buildUI()
     /* Native-app SDK: export the mk_* ABI to the ELF loader so signed SD apps
      * can call into the firmware (drivers + MK_TUI). */
     app_sdk_init(_device);
+   /* 1. Hard-reset the ES8311 codec via I2C to clear stale state */
+    In_I2C.writeRegister8(0x18, 0x00, 0x1F); // Full reset
+    delay(50);
+    In_I2C.writeRegister8(0x18, 0x00, 0x00); // Clear reset
+    delay(10);
+
+    /* 2. Initialize and UNMUTE the I2S speaker */
+    _device->speaker.config().sample_rate = 44100;
+    _device->speaker.begin(&In_I2C);
+    _device->speaker.setMute(false);
 
     /* Populate menu grid */
     loadAppsMenu();
@@ -584,6 +620,17 @@ void Launcher::returnToUI()
         _device->Lcd.setBrightness((uint8_t)(sys_get_brightness() * 255 / 100));
         s_screen_off = false;
     }
+
+    /* 1. Hard-reset the ES8311 codec via I2C to clear stale state */
+    In_I2C.writeRegister8(0x18, 0x00, 0x1F); // Full reset
+    delay(50);
+    In_I2C.writeRegister8(0x18, 0x00, 0x00); // Clear reset
+    delay(10);
+
+    /* 2. Initialize and UNMUTE the I2S speaker */
+    _device->speaker.config().sample_rate = 44100;
+    _device->speaker.begin(&In_I2C);
+    _device->speaker.setMute(false);
 
     /* Force LVGL full redraw — app may have written directly to LCD */
     if (ui_apps_menu) {
@@ -811,6 +858,11 @@ void Launcher::handlePhysicalNav()
         return;
     }
 
+    /* ── Trigger Audio Feedback for Physical Buttons ── */
+    if (sys_get_key_sound()) {
+        mk_event_push(MK_EVT_KEY_TONE);
+    }
+
     /* Any physical press resets idle timer and wakes the screen. */
     power_reset_sleep_timer();
     if (s_screen_off) {
@@ -843,6 +895,23 @@ void Launcher::processNavEvents()
         const bool down  = (evt == MK_EVT_JOY_DOWN);
         const bool left  = (evt == MK_EVT_JOY_LEFT);
         const bool right = (evt == MK_EVT_JOY_RIGHT);
+        const bool tone  = (evt == MK_EVT_KEY_TONE);
+
+        /* ── Audio Feedback ── */
+        if (tone) {
+            if (s_beep_timer == NULL) {
+                s_beep_dev = _device;
+                s_beep_state = 1;
+
+                // Enable amplifier first.
+                s_beep_dev->io_exp.digitalWrite(HAL_IOEXP_PA_EN, HIGH);
+
+                // Give the amplifier time to power up before audio starts.
+                s_beep_timer = lv_timer_create(beep_timer_cb, 200, NULL);
+            }
+
+            continue;
+        }
 
         /* ── Home: joystick → cross navigation ── */
         if (cur == ui_home) {

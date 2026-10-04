@@ -33,7 +33,7 @@
  * maps 16 to DAC register 0x27 (-76 dB), not to 16% PCM amplitude.
  * No measured <=1W validation is recorded here. The MP3 codec-only session uses
  * a separate explicit dB attenuation policy and verified register readback. */
-#define SPK_VOLUME_MAX    16
+#define SPK_VOLUME_MAX    100
 
 /**
  * @brief Speaker configuration.
@@ -189,6 +189,9 @@ public:
 
     /// Get current sample rate
     uint32_t getSampleRate() const { return _cfg.sample_rate; }
+
+    //keytone
+    void buttonTone(uint32_t duration_ms, int volume = 60);
 
 private:
     speaker_config_t _cfg;

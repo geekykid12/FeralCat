@@ -401,3 +401,131 @@ bool Speaker_Class::setSampleRate(uint32_t rate)
     ESP_LOGI(TAG, "Sample rate => %lu Hz", rate);
     return true;
 }
+
+void Speaker_Class::buttonTone(uint32_t duration_ms, int volume)
+{
+    if (!_initialized || duration_ms == 0) return;
+
+    const uint32_t rate = _cfg.sample_rate;
+    const uint32_t freq_hz = 600;
+
+    //const int previous_volume = _volume;
+
+    if (volume < 0) volume = 0;
+    if (volume > SPK_VOLUME_MAX) volume = SPK_VOLUME_MAX;
+
+    setVolume(volume);
+
+    _is_playing = true;
+
+    const uint32_t total_samples =
+        (uint32_t)((uint64_t)rate * duration_ms / 1000);
+
+    const size_t chunk_samples = _cfg.dma_buf_len;
+    int16_t stereo_buf[chunk_samples * 2];
+
+    // Short attack to prevent a click.
+    const uint32_t attack_samples =
+        (uint32_t)((uint64_t)rate * 2 / 1000);
+
+    // Fade out over the last 25 ms.
+    const uint32_t fade_samples =
+        (uint32_t)((uint64_t)rate * 25 / 1000);
+
+    uint32_t generated = 0;
+
+    while (generated < total_samples && _is_playing) {
+        size_t remaining = total_samples - generated;
+        size_t count = (remaining > chunk_samples)
+                     ? chunk_samples
+                     : remaining;
+
+        for (size_t i = 0; i < count; i++) {
+            const uint32_t sample_index = generated + i;
+
+            // Triangle wave from -1.0 to +1.0.
+            const float phase =
+                fmodf(
+                    (float)freq_hz *
+                    (float)sample_index /
+                    (float)rate,
+                    1.0f
+                );
+
+            float triangle;
+
+            if (phase < 0.25f) {
+                triangle = phase * 4.0f;
+            }
+            else if (phase < 0.75f) {
+                triangle = 2.0f - phase * 4.0f;
+            }
+            else {
+                triangle = phase * 4.0f - 4.0f;
+            }
+
+            // Attack.
+            float envelope = 1.0f;
+
+            if (sample_index < attack_samples) {
+                envelope =
+                    (float)sample_index /
+                    (float)attack_samples;
+            }
+
+            // Fade out.
+            const uint32_t fade_start =
+                total_samples > fade_samples
+                ? total_samples - fade_samples
+                : 0;
+
+            if (sample_index >= fade_start) {
+                float t =
+                    (float)(sample_index - fade_start) /
+                    (float)fade_samples;
+
+                envelope *= (1.0f - t);
+            }
+
+            if (envelope < 0.0f) envelope = 0.0f;
+            if (envelope > 1.0f) envelope = 1.0f;
+
+            const int16_t sample =
+                (int16_t)(
+                    12000.0f *
+                    envelope *
+                    triangle
+                );
+
+            stereo_buf[i * 2]     = sample;
+            stereo_buf[i * 2 + 1] = sample;
+        }
+
+        _i2s_write(
+            stereo_buf,
+            count * 2 * sizeof(int16_t)
+        );
+
+        generated += count;
+    }
+
+    // Flush with silence.
+    memset(
+        stereo_buf,
+        0,
+        chunk_samples * 2 * sizeof(int16_t)
+    );
+
+    _i2s_write(
+        stereo_buf,
+        chunk_samples * 2 * sizeof(int16_t)
+    );
+
+    _is_playing = false;
+
+    // Wait for the tone and trailing silence to actually
+    // leave the I2S DMA pipeline before restoring volume.
+
+    // Restore normal system volume.
+    //setVolume(previous_volume);
+}

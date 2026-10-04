@@ -11,6 +11,8 @@
 #include "bsp/config.h"
 #include "../i2c/I2C_Class.hpp"
 #include "../button/Button.hpp"
+#include "../../system/settings_bridge.h"
+#include "../../system/mk_events.h"
 
 /**********************
  *  STATIC PROTOTYPES
@@ -62,7 +64,15 @@ static CTP_Class* _ctp;
 /**********************
  *   GLOBAL FUNCTIONS
  **********************/
-
+static void indev_feedback_cb(lv_indev_drv_t * drv, uint8_t event)
+{
+    (void)drv;
+    if (event == LV_EVENT_PRESSED) {
+        if (sys_get_key_sound()) {
+            mk_event_push(MK_EVT_KEY_TONE);
+        }
+    }
+}
 void lv_port_indev_init(CTP_Class* CTP_Class)
 {
     /**
@@ -90,6 +100,7 @@ void lv_port_indev_init(CTP_Class* CTP_Class)
     lv_indev_drv_init(&indev_drv_touchpad);
     indev_drv_touchpad.type = LV_INDEV_TYPE_POINTER;
     indev_drv_touchpad.read_cb = touchpad_read;
+    /*indev_drv_touchpad.feedback_cb = indev_feedback_cb; */ /*uncomment out this line to enable key tone on touchscreen input*/
     indev_touchpad = lv_indev_drv_register(&indev_drv_touchpad);
 
     /*------------------
@@ -106,6 +117,7 @@ void lv_port_indev_init(CTP_Class* CTP_Class)
     lv_indev_drv_init(&indev_drv_button);
     indev_drv_button.type    = LV_INDEV_TYPE_KEYPAD;
     indev_drv_button.read_cb = button_keypad_read;
+    indev_drv_button.feedback_cb = indev_feedback_cb;
     indev_button = lv_indev_drv_register(&indev_drv_button);
 
     /*------------------

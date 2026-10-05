@@ -346,6 +346,40 @@ void Launcher::onLoop()
                 loadAppsMenu();
             }
         }
+        /* ── Native /apps catalog ───────────────────────────────────────
+         * The scan touches the SD so it stays off the boot path, but it must
+         * not wait for the user to open the Apps menu either. Run it from the
+         * loop as soon as the card is ready, and again whenever the card comes
+         * back — an insert, or the SD_MMC remount after a USB MSC session.
+         * Previously a scan that ran while the card was unavailable latched an
+         * empty catalog until the next reboot, hiding every tile. */
+        {
+            const bool mscActive = usb_msc_is_active() != 0;
+            if (_nativeUsbWasActive && !mscActive) _nativeScanned = false;
+            _nativeUsbWasActive = mscActive;
+
+            if (!_sd_ready || mscActive) {
+                _nativeScanAt = 0;                  /* restart the settle window */
+            } else if (!_nativeScanned) {
+                if (!_nativeScanAt) _nativeScanAt = millis();
+                if (millis() - _nativeScanAt >= 250) {   /* let a fresh mount settle */
+                    native_apps_scan();
+                    _nativeScanned   = true;
+                    _nativeScanAt    = 0;
+                    _nativeMenuDirty = true;
+                }
+            }
+            /* Rebuild the grid only between animations and with no pending
+             * selection — same guard the Lua catalog rebuild uses. */
+            if (_nativeMenuDirty) {
+                lv_disp_t* d = lv_disp_get_default();
+                if (d && !d->scr_to_load && !ui_apps_menu_get_selected_id()) {
+                    _nativeMenuDirty = false;
+                    loadAppsMenu();
+                }
+            }
+        }
+
         /* ── GUI state: LVGL active ── */
         /* Drive LED animation (BREATHING / BLINK) — must tick every loop. */
         _device->led.update();
@@ -731,7 +765,8 @@ void Launcher::updateStatusBar()
         if (sd_present != _sd_ready) {
             mk_event_push(sd_present ? MK_EVT_SD_INSERTED : MK_EVT_SD_REMOVED);
             if (_luaApps && !usb_msc_is_active()) _luaApps->refreshCatalog();
-            _nativeScanned = false;   /* re-scan /apps next time the Apps menu opens */
+            _nativeScanned = false;   /* card changed → catalog is stale */
+            _nativeScanAt  = 0;       /* restart the settle window */
         }
         _sd_ready = sd_present;
         if (ui_sd_on && ui_sd_null) {
@@ -919,7 +954,10 @@ void Launcher::processNavEvents()
                 /* Lazy /apps scan: first time the Apps menu is opened, scan the
                  * SD and rebuild the grid with native tiles (kept off the boot
                  * path so boot stays fast). */
-                if (!_nativeScanned) {
+                /* Fallback only — onLoop normally scans well before this.
+                 * Never latch while the card is absent: that is what used to
+                 * hide every tile until the next reboot. */
+                if (!_nativeScanned && _sd_ready) {
                     native_apps_scan();
                     _nativeScanned = true;
                     loadAppsMenu();

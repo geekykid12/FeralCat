@@ -45,7 +45,10 @@ private:
     bool _lvgl_inited    = false;   /* lv_init + drivers done (one-time) */
     bool _ui_ready       = false;   /* UI screens exist (stays true after buildUI) */
     bool _app_running    = false;
-    bool _nativeScanned  = false;   /* /apps scanned once (lazy, off the boot path) */
+    bool _nativeScanned  = false;   /* /apps catalog is current for this card   */
+    bool _nativeMenuDirty = false;  /* catalog changed; rebuild grid when safe   */
+    bool _nativeUsbWasActive = false; /* MSC held the SD last loop (SD_MMC down) */
+    uint32_t _nativeScanAt = 0;     /* settle-window start for a pending scan    */
     int  _running_app_id = -1;
 
     /* SD card (mounted via SD_MMC native API) */

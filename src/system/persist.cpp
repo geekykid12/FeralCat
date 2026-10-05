@@ -54,7 +54,12 @@ bool persist_init(void)
         return s_open;   /* nothing to do */
     }
 
-    if (stored_ver == 2 && PERSIST_SCHEMA_VERSION == 3) {
+    if (stored_ver == 3 && PERSIST_SCHEMA_VERSION == 4) {
+        /* v3 -> v4: add the TX permission key without disturbing existing settings.
+         * Default is deny; no active-transmit feature is enabled by migration. */
+        Serial.println("[persist] Schema v3 -> v4: adding tx_en (default OFF)");
+        if (!s_prefs.isKey(PKEY_TX_EN)) s_prefs.putInt(PKEY_TX_EN, 0);
+    } else if (stored_ver == 2 && PERSIST_SCHEMA_VERSION == 3) {
         /* Targeted v2 → v3 migration: re-encode wifi_pass in place.
          * All other settings (brightness, volume, LED, BLE …) are kept. */
         Serial.println("[persist] Schema v2 → v3: migrating wifi_pass");
